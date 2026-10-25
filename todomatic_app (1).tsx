@@ -1,0 +1,1367 @@
+import React, { useState, useRef, useEffect, useMemo } from "react";
+import {
+  Plus,
+  CheckCircle2,
+  Circle,
+  Edit3,
+  Trash2,
+  Save,
+  X,
+  Search,
+  Filter,
+  Sparkles,
+  BookOpen,
+  Code2,
+  ListTodo,
+  ChevronDown,
+  ChevronRight,
+  Calendar,
+  Tag,
+  Flag,
+  RotateCcw,
+  CheckCheck,
+  Layers,
+  Terminal,
+  ArrowUpRight,
+  Clock,
+  SlidersHorizontal,
+  Info,
+  Check,
+  AlertCircle
+} from "lucide-react";
+
+// ============================================================================
+// 1. CUSTOM HOOK: usePrevious (Directly from MDN "Accessibility in React")
+// Tracks the previous value of a state or prop across renders so we know
+// when a transition occurred (e.g., switching from View Mode to Edit Mode).
+// ============================================================================
+function usePrevious(value) {
+  const ref = useRef();
+  useEffect(() => {
+    ref.current = value;
+  });
+  return ref.current;
+}
+
+// ============================================================================
+// 2. FILTER DEFINITIONS (MDN Filter Map Pattern)
+// Declarative object mapping filter names to predicate functions.
+// ============================================================================
+const FILTER_MAP = {
+  All: () => true,
+  Active: (task) => !task.completed,
+  Completed: (task) => task.completed,
+};
+const FILTER_NAMES = Object.keys(FILTER_MAP);
+
+const CATEGORIES = [
+  { id: "frontend", label: "Frontend", color: "bg-indigo-100 text-indigo-700 border-indigo-200" },
+  { id: "architecture", label: "Architecture", color: "bg-emerald-100 text-emerald-700 border-emerald-200" },
+  { id: "accessibility", label: "Accessibility", color: "bg-amber-100 text-amber-700 border-amber-200" },
+  { id: "testing", label: "Testing & QA", color: "bg-rose-100 text-rose-700 border-rose-200" },
+];
+
+const PRIORITIES = [
+  { id: "high", label: "High", dot: "bg-rose-500", badge: "text-rose-700 bg-rose-50 border-rose-200" },
+  { id: "medium", label: "Medium", dot: "bg-amber-500", badge: "text-amber-700 bg-amber-50 border-amber-200" },
+  { id: "low", label: "Low", dot: "bg-slate-400", badge: "text-slate-600 bg-slate-100 border-slate-200" },
+];
+
+const INITIAL_TASKS = [
+  {
+    id: "todo-0",
+    name: "Break UI into modular <Todo />, <Form />, and <FilterButton /> components",
+    completed: true,
+    priority: "high",
+    category: "architecture",
+    dueDate: "2026-10-24",
+    notes: "Follow MDN's componentization guide: pass unique key={task.id} when mapping over tasks.",
+    subtasks: [
+      { id: "sub-1", title: "Create Form component with controlled input state", done: true },
+      { id: "sub-2", title: "Create FilterButton component with aria-pressed", done: true },
+    ],
+  },
+  {
+    id: "todo-1",
+    name: "Implement callback props for upward data flow (Child -> Parent state)",
+    completed: true,
+    priority: "high",
+    category: "frontend",
+    dueDate: "2026-10-25",
+    notes: "Pass addTask, toggleTaskCompleted, deleteTask, and editTask from App down to children.",
+    subtasks: [
+      { id: "sub-3", title: "Wire onSubmit in Form to call props.addTask(name)", done: true },
+      { id: "sub-4", title: "Immutable state update with spread syntax [...tasks, newTask]", done: true },
+    ],
+  },
+  {
+    id: "todo-2",
+    name: "Build conditional rendering in <Todo /> for inline editing vs. view template",
+    completed: false,
+    priority: "high",
+    category: "frontend",
+    dueDate: "2026-10-26",
+    notes: "Use const [isEditing, setEditing] = useState(false) to toggle between editingTemplate and viewTemplate.",
+    subtasks: [
+      { id: "sub-5", title: "Create editingTemplate with Save and Cancel buttons", done: true },
+      { id: "sub-6", title: "Create viewTemplate with checkbox, Edit, and Delete buttons", done: false },
+    ],
+  },
+  {
+    id: "todo-3",
+    name: "Manage keyboard focus with useRef, useEffect, and usePrevious custom hook",
+    completed: false,
+    priority: "medium",
+    category: "accessibility",
+    dueDate: "2026-10-27",
+    notes: "Move focus to edit input on open, return focus to Edit button on close, and focus list heading on delete.",
+    subtasks: [
+      { id: "sub-7", title: "Attach editFieldRef and editButtonRef in Todo component", done: false },
+      { id: "sub-8", title: "Attach listHeadingRef with tabIndex='-1' in App component", done: false },
+    ],
+  },
+];
+
+// ============================================================================
+// 3. CHILD COMPONENT: <Form /> (CREATE Operation)
+// Demonstrates Controlled Inputs, Local Form State, Form Submission Events,
+// and Calling a Parent Callback Prop (`props.addTask`).
+// ============================================================================
+function Form({ addTask, onLogAction }) {
+  const [name, setName] = useState("");
+  const [priority, setPriority] = useState("medium");
+  const [category, setCategory] = useState("frontend");
+  const [dueDate, setDueDate] = useState("2026-10-28");
+  const [notes, setNotes] = useState("");
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [errorMsg, setErrorMsg] = useState("");
+
+  function handleChange(e) {
+    setName(e.target.value);
+    if (errorMsg) setErrorMsg("");
+  }
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    const trimmed = name.trim();
+    if (!trimmed) {
+      setErrorMsg("Please enter a task description before adding.");
+      onLogAction("WARN", "Blocked empty task submission in <Form />");
+      return;
+    }
+    addTask({
+      name: trimmed,
+      priority,
+      category,
+      dueDate,
+      notes: notes.trim(),
+    });
+    // Reset controlled inputs back to initial state
+    setName("");
+    setNotes("");
+    setErrorMsg("");
+  }
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className="bg-white rounded-2xl border border-slate-200/90 shadow-sm p-4 sm:p-5 transition-all"
+      aria-labelledby="new-todo-heading"
+    >
+      <div className="flex items-center justify-between mb-3">
+        <label
+          htmlFor="new-todo-input"
+          id="new-todo-heading"
+          className="text-sm font-semibold text-slate-800 flex items-center gap-2"
+        >
+          <span className="w-2 h-2 rounded-full bg-indigo-600"></span>
+          What needs to be done?
+        </label>
+        <span className="text-[11px] font-mono text-slate-400 bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
+          &lt;Form addTask=&#123;addTask&#125; /&gt;
+        </span>
+      </div>
+
+      <div className="flex flex-col sm:flex-row gap-2.5">
+        <div className="relative flex-1">
+          <input
+            type="text"
+            id="new-todo-input"
+            name="text"
+            autoComplete="off"
+            placeholder="e.g., Refactor state logic with immutable array methods..."
+            value={name}
+            onChange={handleChange}
+            className="w-full pl-3.5 pr-4 py-2.5 text-sm bg-slate-50/70 focus:bg-white border border-slate-300 rounded-xl text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/30 focus:border-indigo-600 transition-all"
+          />
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowAdvanced((prev) => !prev)}
+            className={`px-3 py-2.5 rounded-xl border text-xs font-medium flex items-center gap-1.5 transition-colors ${
+              showAdvanced
+                ? "bg-indigo-50 border-indigo-200 text-indigo-700"
+                : "bg-white border-slate-200 text-slate-600 hover:bg-slate-50"
+            }`}
+            title="Configure Priority, Category & Notes"
+          >
+            <SlidersHorizontal className="w-3.5 h-3.5" />
+            <span>Options</span>
+          </button>
+
+          <button
+            type="submit"
+            className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white font-medium text-sm rounded-xl shadow-sm flex items-center gap-1.5 transition-all cursor-pointer"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Add Task</span>
+          </button>
+        </div>
+      </div>
+
+      {errorMsg && (
+        <div className="mt-2.5 flex items-center gap-1.5 text-xs text-rose-600 font-medium">
+          <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+          <span>{errorMsg}</span>
+        </div>
+      )}
+
+      {showAdvanced && (
+        <div className="mt-3.5 pt-3.5 border-t border-slate-100 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+          <div>
+            <label htmlFor="new-todo-priority" className="block font-medium text-slate-600 mb-1">
+              Priority Level
+            </label>
+            <select
+              id="new-todo-priority"
+              value={priority}
+              onChange={(e) => setPriority(e.target.value)}
+              className="w-full px-2.5 py-2 rounded-lg border border-slate-200 bg-slate-50 text-slate-800 focus:outline-none focus:border-indigo-500"
+            >
+              {PRIORITIES.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.label} Priority
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="new-todo-category" className="block font-medium text-slate-600 mb-1">
+              Category Tag
+            </label>
+            <select
+              id="new-todo-category"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="w-full px-2.5 py-2 rounded-lg border border-slate-200 bg-slate-50 text-slate-800 focus:outline-none focus:border-indigo-500"
+            >
+              {CATEGORIES.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label htmlFor="new-todo-date" className="block font-medium text-slate-600 mb-1">
+              Target Date
+            </label>
+            <input
+              id="new-todo-date"
+              type="date"
+              value={dueDate}
+              onChange={(e) => setDueDate(e.target.value)}
+              className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-800 focus:outline-none focus:border-indigo-500"
+            />
+          </div>
+
+          <div className="sm:col-span-3">
+            <label htmlFor="new-todo-notes" className="block font-medium text-slate-600 mb-1">
+              Implementation Notes (Optional)
+            </label>
+            <input
+              id="new-todo-notes"
+              type="text"
+              placeholder="Add technical context, acceptance criteria, or MDN tips..."
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50 text-slate-800 focus:outline-none focus:border-indigo-500"
+            />
+          </div>
+        </div>
+      )}
+    </form>
+  );
+}
+
+// ============================================================================
+// 4. CHILD COMPONENT: <FilterButton /> (READ / FILTER Operation)
+// Uses aria-pressed to tell screen readers which filter button is active.
+// ============================================================================
+function FilterButton({ name, isPressed, setFilter, count }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={isPressed}
+      onClick={() => setFilter(name)}
+      className={`px-3.5 py-1.5 rounded-lg text-xs font-medium transition-all flex items-center gap-1.5 cursor-pointer ${
+        isPressed
+          ? "bg-slate-900 text-white shadow-xs"
+          : "bg-slate-100 text-slate-600 hover:bg-slate-200/75"
+      }`}
+    >
+      <span className="sr-only">Show </span>
+      <span>{name}</span>
+      <span className="sr-only"> tasks</span>
+      <span
+        className={`px-1.5 py-0.2 rounded-full text-[10px] font-semibold ${
+          isPressed ? "bg-white/20 text-white" : "bg-slate-200 text-slate-700"
+        }`}
+      >
+        {count}
+      </span>
+    </button>
+  );
+}
+
+// ============================================================================
+// 5. CHILD COMPONENT: <Todo /> (READ, UPDATE, DELETE & Focus Management)
+// Implements MDN's two-template conditional rendering pattern:
+// - `editingTemplate`: rendered when `isEditing === true`
+// - `viewTemplate`: rendered when `isEditing === false`
+// Also implements MDN's `useRef` + `usePrevious` + `useEffect` accessibility focus.
+// ============================================================================
+function Todo({
+  id,
+  name,
+  completed,
+  priority,
+  category,
+  dueDate,
+  notes,
+  subtasks = [],
+  toggleTaskCompleted,
+  deleteTask,
+  editTask,
+  toggleSubtask,
+  addSubtask,
+}) {
+  const [isEditing, setEditing] = useState(false);
+  const [newName, setNewName] = useState(name);
+  const [newPriority, setNewPriority] = useState(priority || "medium");
+  const [newCategory, setNewCategory] = useState(category || "frontend");
+  const [newNotes, setNewNotes] = useState(notes || "");
+  const [showSubtasks, setShowSubtasks] = useState(false);
+  const [subtaskInput, setSubtaskInput] = useState("");
+
+  // MDN Accessibility refs for focus management
+  const editFieldRef = useRef(null);
+  const editButtonRef = useRef(null);
+
+  // Track previous editing state across renders
+  const wasEditing = usePrevious(isEditing);
+
+  useEffect(() => {
+    if (!wasEditing && isEditing && editFieldRef.current) {
+      // Transitioned from View -> Edit: focus the text input
+      editFieldRef.current.focus();
+    } else if (wasEditing && !isEditing && editButtonRef.current) {
+      // Transitioned from Edit -> View: return focus to the Edit button
+      editButtonRef.current.focus();
+    }
+  }, [wasEditing, isEditing]);
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    const trimmed = newName.trim();
+    if (!trimmed) return;
+    editTask(id, {
+      name: trimmed,
+      priority: newPriority,
+      category: newCategory,
+      notes: newNotes.trim(),
+    });
+    setEditing(false);
+  }
+
+  function handleCancel() {
+    setNewName(name);
+    setNewPriority(priority || "medium");
+    setNewCategory(category || "frontend");
+    setNewNotes(notes || "");
+    setEditing(false);
+  }
+
+  function handleAddSubtask(e) {
+    e.preventDefault();
+    const trimmed = subtaskInput.trim();
+    if (!trimmed) return;
+    addSubtask(id, trimmed);
+    setSubtaskInput("");
+  }
+
+  const priorityMeta = PRIORITIES.find((p) => p.id === priority) || PRIORITIES[1];
+  const categoryMeta = CATEGORIES.find((c) => c.id === category) || CATEGORIES[0];
+  const completedSubtasks = subtasks.filter((s) => s.done).length;
+
+  // TEMPLATE A: Editing UI
+  const editingTemplate = (
+    <form onSubmit={handleSubmit} className="space-y-3 p-1">
+      <div className="flex items-center justify-between">
+        <label className="text-xs font-semibold text-indigo-700 flex items-center gap-1.5" htmlFor={`edit-${id}`}>
+          <Edit3 className="w-3.5 h-3.5" />
+          <span>Editing task: &ldquo;{name}&rdquo;</span>
+        </label>
+        <span className="text-[11px] font-mono text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded">
+          isEditing = true
+        </span>
+      </div>
+
+      <input
+        id={`edit-${id}`}
+        type="text"
+        value={newName}
+        onChange={(e) => setNewName(e.target.value)}
+        ref={editFieldRef}
+        className="w-full px-3 py-2 text-sm bg-white border-2 border-indigo-500 rounded-xl text-slate-900 focus:outline-none shadow-xs"
+      />
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 text-xs">
+        <div>
+          <label className="block text-slate-500 mb-1 font-medium">Priority</label>
+          <select
+            value={newPriority}
+            onChange={(e) => setNewPriority(e.target.value)}
+            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-800"
+          >
+            {PRIORITIES.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label className="block text-slate-500 mb-1 font-medium">Category</label>
+          <select
+            value={newCategory}
+            onChange={(e) => setNewCategory(e.target.value)}
+            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-800"
+          >
+            {CATEGORIES.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="sm:col-span-2">
+          <label className="block text-slate-500 mb-1 font-medium">Notes</label>
+          <input
+            type="text"
+            value={newNotes}
+            onChange={(e) => setNewNotes(e.target.value)}
+            placeholder="Technical notes..."
+            className="w-full px-2.5 py-1.5 rounded-lg border border-slate-200 bg-slate-50 text-slate-800"
+          />
+        </div>
+      </div>
+
+      <div className="flex items-center justify-end gap-2 pt-1">
+        <button
+          type="button"
+          onClick={handleCancel}
+          className="px-3 py-1.5 rounded-lg border border-slate-200 bg-white hover:bg-slate-50 text-slate-600 text-xs font-medium flex items-center gap-1 cursor-pointer"
+        >
+          <X className="w-3.5 h-3.5" />
+          <span>Cancel</span>
+          <span className="sr-only">renaming {name}</span>
+        </button>
+        <button
+          type="submit"
+          className="px-3.5 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium flex items-center gap-1 shadow-xs cursor-pointer"
+        >
+          <Save className="w-3.5 h-3.5" />
+          <span>Save Changes</span>
+          <span className="sr-only">new name for {name}</span>
+        </button>
+      </div>
+    </form>
+  );
+
+  // TEMPLATE B: Default View UI
+  const viewTemplate = (
+    <div className="space-y-2.5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3 flex-1 min-w-0">
+          <button
+            type="button"
+            role="checkbox"
+            aria-checked={completed}
+            aria-label={`Mark "${name}" as ${completed ? "incomplete" : "complete"}`}
+            onClick={() => toggleTaskCompleted(id)}
+            className="mt-0.5 text-slate-400 hover:text-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/40 rounded-full transition-colors cursor-pointer shrink-0"
+          >
+            {completed ? (
+              <CheckCircle2 className="w-5 h-5 text-emerald-600 fill-emerald-50" />
+            ) : (
+              <Circle className="w-5 h-5" />
+            )}
+          </button>
+
+          <div className="flex-1 min-w-0">
+            <label
+              onClick={() => toggleTaskCompleted(id)}
+              className={`text-sm font-medium leading-snug cursor-pointer select-none block transition-colors ${
+                completed ? "line-through text-slate-400" : "text-slate-800"
+              }`}
+            >
+              {name}
+            </label>
+
+            {notes && (
+              <p className="mt-1 text-xs text-slate-500 leading-relaxed">{notes}</p>
+            )}
+
+            <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <span
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border ${categoryMeta.color}`}
+              >
+                <Tag className="w-2.5 h-2.5" />
+                {categoryMeta.label}
+              </span>
+
+              <span
+                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium border ${priorityMeta.badge}`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${priorityMeta.dot}`} />
+                {priorityMeta.label}
+              </span>
+
+              {dueDate && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium text-slate-500 bg-slate-100 border border-slate-200">
+                  <Calendar className="w-2.5 h-2.5" />
+                  {dueDate}
+                </span>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setShowSubtasks((prev) => !prev)}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-medium text-slate-600 bg-slate-100 hover:bg-slate-200/80 border border-slate-200 transition-colors cursor-pointer"
+              >
+                {showSubtasks ? (
+                  <ChevronDown className="w-3 h-3" />
+                ) : (
+                  <ChevronRight className="w-3 h-3" />
+                )}
+                <span>
+                  Subtasks ({completedSubtasks}/{subtasks.length})
+                </span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Action Controls: Edit & Delete */}
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            ref={editButtonRef}
+            onClick={() => {
+              setNewName(name);
+              setEditing(true);
+            }}
+            className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 transition-colors cursor-pointer"
+            title={`Edit "${name}"`}
+          >
+            <Edit3 className="w-4 h-4" />
+            <span className="sr-only">Edit {name}</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => deleteTask(id)}
+            className="p-1.5 rounded-lg text-slate-500 hover:text-rose-600 hover:bg-rose-50 transition-colors cursor-pointer"
+            title={`Delete "${name}"`}
+          >
+            <Trash2 className="w-4 h-4" />
+            <span className="sr-only">Delete {name}</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Expandable Subtasks Drawer */}
+      {showSubtasks && (
+        <div className="ml-8 mt-2 pt-2.5 border-t border-slate-100 space-y-2">
+          {subtasks.length > 0 ? (
+            <ul className="space-y-1.5">
+              {subtasks.map((sub) => (
+                <li key={sub.id} className="flex items-center gap-2 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => toggleSubtask(id, sub.id)}
+                    className="text-slate-400 hover:text-indigo-600 cursor-pointer"
+                  >
+                    {sub.done ? (
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    ) : (
+                      <Circle className="w-3.5 h-3.5" />
+                    )}
+                  </button>
+                  <span
+                    onClick={() => toggleSubtask(id, sub.id)}
+                    className={`cursor-pointer ${
+                      sub.done ? "line-through text-slate-400" : "text-slate-700"
+                    }`}
+                  >
+                    {sub.title}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-[11px] text-slate-400 italic">No subtasks yet. Break this task down below:</p>
+          )}
+
+          <form onSubmit={handleAddSubtask} className="flex gap-1.5 pt-1">
+            <input
+              type="text"
+              value={subtaskInput}
+              onChange={(e) => setSubtaskInput(e.target.value)}
+              placeholder="Add a smaller step..."
+              className="flex-1 px-2.5 py-1 text-xs rounded-lg border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:border-indigo-500"
+            />
+            <button
+              type="submit"
+              className="px-2.5 py-1 bg-slate-800 hover:bg-slate-900 text-white text-xs rounded-lg font-medium cursor-pointer"
+            >
+              Add
+            </button>
+          </form>
+        </div>
+      )}
+    </div>
+  );
+
+  return (
+    <li
+      className={`rounded-2xl border p-3.5 sm:p-4 transition-all ${
+        isEditing
+          ? "bg-indigo-50/40 border-indigo-300 shadow-sm"
+          : completed
+          ? "bg-slate-50/70 border-slate-200/70"
+          : "bg-white border-slate-200/90 hover:border-slate-300 shadow-2xs"
+      }`}
+    >
+      {isEditing ? editingTemplate : viewTemplate}
+    </li>
+  );
+}
+
+// ============================================================================
+// 6. ROOT COMPONENT: <App />
+// Owns the primary `tasks` state, `filter` state, CRUD mutations, and
+// MDN's list-heading focus management when tasks are deleted.
+// ============================================================================
+export default function App() {
+  // Load initial tasks safely from localStorage or fallback to INITIAL_TASKS
+  const [tasks, setTasks] = useState(() => {
+    try {
+      const saved = localStorage.getItem("mdn_react_todomatic_v2");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch (e) {
+      // Ignore sandbox storage errors
+    }
+    return INITIAL_TASKS;
+  });
+
+  const [filter, setFilter] = useState("All");
+  const [categoryFilter, setCategoryFilter] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [activeTab, setActiveTab] = useState("workspace"); // "workspace" | "guide"
+  const [showInspector, setShowInspector] = useState(true);
+  const [actionLogs, setActionLogs] = useState([
+    {
+      id: "log-init",
+      type: "INIT",
+      message: "Mounted <App /> with initial tasks state and FILTER_MAP",
+      timestamp: "Just now",
+    },
+  ]);
+
+  // Save to localStorage whenever tasks change
+  useEffect(() => {
+    try {
+      localStorage.setItem("mdn_react_todomatic_v2", JSON.stringify(tasks));
+    } catch (e) {
+      // Ignore sandbox storage errors
+    }
+  }, [tasks]);
+
+  function logEvent(type, message) {
+    const time = new Date().toLocaleTimeString([], {
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+    });
+    setActionLogs((prev) => [
+      { id: `log-${Date.now()}-${Math.random()}`, type, message, timestamp: time },
+      ...prev.slice(0, 14),
+    ]);
+  }
+
+  // --------------------------------------------------------------------------
+  // CRUD 1: CREATE - `addTask` callback prop passed to <Form />
+  // --------------------------------------------------------------------------
+  function addTask({ name, priority, category, dueDate, notes }) {
+    const newId = `todo-${Date.now()}`;
+    const newTask = {
+      id: newId,
+      name,
+      completed: false,
+      priority,
+      category,
+      dueDate,
+      notes,
+      subtasks: [],
+    };
+    setTasks((prevTasks) => [newTask, ...prevTasks]);
+    logEvent("CREATE", `addTask("${name}") -> [...tasks, newTask] (id: ${newId})`);
+  }
+
+  // --------------------------------------------------------------------------
+  // CRUD 2: UPDATE COMPLETION - `toggleTaskCompleted` passed to <Todo />
+  // Uses Array.prototype.map() to return a brand-new array with flipped boolean
+  // --------------------------------------------------------------------------
+  function toggleTaskCompleted(id) {
+    let targetName = "";
+    let nextStatus = false;
+    const updatedTasks = tasks.map((task) => {
+      if (id === task.id) {
+        targetName = task.name;
+        nextStatus = !task.completed;
+        return { ...task, completed: !task.completed };
+      }
+      return task;
+    });
+    setTasks(updatedTasks);
+    logEvent(
+      "UPDATE",
+      `toggleTaskCompleted("${id}") -> completed: ${nextStatus} ("${targetName.slice(0, 28)}...")`
+    );
+  }
+
+  // --------------------------------------------------------------------------
+  // CRUD 3: UPDATE DETAILS - `editTask` passed to <Todo />
+  // --------------------------------------------------------------------------
+  function editTask(id, updates) {
+    const editedTaskList = tasks.map((task) => {
+      if (id === task.id) {
+        return { ...task, ...updates };
+      }
+      return task;
+    });
+    setTasks(editedTaskList);
+    logEvent("UPDATE", `editTask("${id}") -> updated name/metadata to "${updates.name}"`);
+  }
+
+  // --------------------------------------------------------------------------
+  // CRUD 4: DELETE - `deleteTask` passed to <Todo />
+  // Uses Array.prototype.filter() to exclude the deleted task immutably
+  // --------------------------------------------------------------------------
+  function deleteTask(id) {
+    const target = tasks.find((t) => t.id === id);
+    const remainingTasks = tasks.filter((task) => id !== task.id);
+    setTasks(remainingTasks);
+    logEvent(
+      "DELETE",
+      `deleteTask("${id}") -> tasks.filter(t => t.id !== "${id}") ("${
+        target ? target.name.slice(0, 25) : id
+      }")`
+    );
+  }
+
+  // Subtask helpers
+  function toggleSubtask(taskId, subtaskId) {
+    setTasks((prev) =>
+      prev.map((t) => {
+        if (t.id !== taskId) return t;
+        return {
+          ...t,
+          subtasks: (t.subtasks || []).map((s) =>
+            s.id === subtaskId ? { ...s, done: !s.done } : s
+          ),
+        };
+      })
+    );
+    logEvent("UPDATE", `toggleSubtask("${taskId}", "${subtaskId}")`);
+  }
+
+  function addSubtask(taskId, title) {
+    setTasks((prev) =>
+      prev.map((t) => {
+        if (t.id !== taskId) return t;
+        return {
+          ...t,
+          subtasks: [
+            ...(t.subtasks || []),
+            { id: `sub-${Date.now()}`, title, done: false },
+          ],
+        };
+      })
+    );
+    logEvent("CREATE", `addSubtask("${taskId}", "${title}")`);
+  }
+
+  function handleClearCompleted() {
+    const completedCount = tasks.filter((t) => t.completed).length;
+    if (completedCount === 0) return;
+    setTasks((prev) => prev.filter((t) => !t.completed));
+    logEvent("DELETE", `Cleared ${completedCount} completed task(s)`);
+  }
+
+  function handleResetDemo() {
+    setTasks(INITIAL_TASKS);
+    setFilter("All");
+    setCategoryFilter("all");
+    setSearchQuery("");
+    logEvent("RESET", "Restored default MDN TodoMatic starter tasks");
+  }
+
+  // --------------------------------------------------------------------------
+  // MDN Accessibility: Focus the list heading when a task is deleted
+  // --------------------------------------------------------------------------
+  const listHeadingRef = useRef(null);
+  const prevTaskLength = usePrevious(tasks.length);
+
+  useEffect(() => {
+    if (prevTaskLength !== undefined && tasks.length < prevTaskLength) {
+      if (listHeadingRef.current) {
+        listHeadingRef.current.focus();
+      }
+    }
+  }, [tasks.length, prevTaskLength]);
+
+  // Derived filtered tasks
+  const filteredTasks = useMemo(() => {
+    return tasks
+      .filter(FILTER_MAP[filter])
+      .filter((t) => (categoryFilter === "all" ? true : t.category === categoryFilter))
+      .filter((t) => {
+        if (!searchQuery.trim()) return true;
+        const q = searchQuery.toLowerCase();
+        return (
+          t.name.toLowerCase().includes(q) ||
+          (t.notes && t.notes.toLowerCase().includes(q))
+        );
+      });
+  }, [tasks, filter, categoryFilter, searchQuery]);
+
+  // Proper pluralization from MDN ("1 task remaining" vs "3 tasks remaining")
+  const tasksNoun = filteredTasks.length !== 1 ? "tasks" : "task";
+  const headingText = `${filteredTasks.length} ${tasksNoun} remaining`;
+
+  const totalCount = tasks.length;
+  const completedCount = tasks.filter((t) => t.completed).length;
+  const activeCount = totalCount - completedCount;
+  const completionRate = totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900 font-sans">
+      {/* Top Header Bar */}
+      <header className="sticky top-0 z-20 bg-white/90 backdrop-blur-md border-b border-slate-200">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-xs">
+              <ListTodo className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-base sm:text-lg font-bold tracking-tight text-slate-900">
+                  TodoMatic Studio
+                </h1>
+                <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+                  MDN React Architecture
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 hidden sm:block">
+                Components, Props, Unidirectional State, CRUD &amp; WAI-ARIA Focus Management
+              </p>
+            </div>
+          </div>
+
+          {/* Navigation & Inspector Toggle */}
+          <div className="flex items-center gap-2">
+            <div className="bg-slate-100 p-1 rounded-xl flex items-center text-xs font-medium">
+              <button
+                type="button"
+                onClick={() => setActiveTab("workspace")}
+                className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
+                  activeTab === "workspace"
+                    ? "bg-white text-slate-900 shadow-2xs"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5 text-indigo-600" />
+                <span>App Workspace</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab("guide")}
+                className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-all cursor-pointer ${
+                  activeTab === "guide"
+                    ? "bg-white text-slate-900 shadow-2xs"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                <BookOpen className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Point-by-Point Guide</span>
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowInspector((prev) => !prev)}
+              className={`px-3 py-2 rounded-xl border text-xs font-medium hidden lg:flex items-center gap-1.5 transition-colors cursor-pointer ${
+                showInspector
+                  ? "bg-slate-900 text-white border-slate-900"
+                  : "bg-white text-slate-700 border-slate-200 hover:bg-slate-50"
+              }`}
+              title="Toggle Live React State & Props Inspector"
+            >
+              <Code2 className="w-3.5 h-3.5" />
+              <span>State Inspector</span>
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Main Content Container */}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+        {activeTab === "workspace" ? (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* Left Column: TodoMatic Application */}
+            <div className={showInspector ? "lg:col-span-7 space-y-5" : "lg:col-span-12 max-w-4xl mx-auto w-full space-y-5"}>
+              {/* Progress & Quick Metrics Banner */}
+              <div className="bg-white rounded-2xl border border-slate-200/90 p-4 sm:p-5 shadow-2xs">
+                <div className="flex flex-wrap items-center justify-between gap-4 mb-3">
+                  <div>
+                    <span className="text-xs font-semibold uppercase tracking-wider text-indigo-600">
+                      Sprint Progress
+                    </span>
+                    <h2
+                      id="list-heading"
+                      tabIndex="-1"
+                      ref={listHeadingRef}
+                      className="text-xl font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 rounded-md inline-block mt-0.5"
+                    >
+                      {headingText}
+                    </h2>
+                  </div>
+
+                  <div className="flex items-center gap-4 text-xs">
+                    <div className="text-right">
+                      <span className="text-slate-400 block">Completed</span>
+                      <span className="font-bold text-slate-800 text-sm">
+                        {completedCount} / {totalCount} ({completionRate}%)
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleResetDemo}
+                      className="px-2.5 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 flex items-center gap-1 font-medium cursor-pointer"
+                      title="Restore original MDN demo tasks"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Reset</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Progress Bar */}
+                <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-indigo-600 transition-all duration-300 rounded-full"
+                    style={{ width: `${completionRate}%` }}
+                  />
+                </div>
+              </div>
+
+              {/* 1. CREATE: <Form /> Component */}
+              <Form addTask={addTask} onLogAction={logEvent} />
+
+              {/* 2. FILTER & SEARCH BAR */}
+              <div className="bg-white rounded-2xl border border-slate-200/90 p-3.5 sm:p-4 shadow-2xs space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  {/* MDN FilterButtons */}
+                  <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Filter tasks by status">
+                    {FILTER_NAMES.map((name) => {
+                      const count =
+                        name === "All"
+                          ? totalCount
+                          : name === "Active"
+                          ? activeCount
+                          : completedCount;
+                      return (
+                        <FilterButton
+                          key={name}
+                          name={name}
+                          isPressed={name === filter}
+                          setFilter={(val) => {
+                            setFilter(val);
+                            logEvent("FILTER", `setFilter("${val}") via <FilterButton />`);
+                          }}
+                          count={count}
+                        />
+                      );
+                    })}
+                  </div>
+
+                  {/* Search Input */}
+                  <div className="relative flex-1 min-w-[180px] max-w-xs">
+                    <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Search tasks or notes..."
+                      aria-label="Search tasks"
+                      className="w-full pl-8 pr-7 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:bg-white focus:outline-none focus:border-indigo-500"
+                    />
+                    {searchQuery && (
+                      <button
+                        type="button"
+                        onClick={() => setSearchQuery("")}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                        aria-label="Clear search"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Category Pills & Bulk Action */}
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-slate-400 font-medium mr-1">Category:</span>
+                    <button
+                      type="button"
+                      onClick={() => setCategoryFilter("all")}
+                      className={`px-2 py-0.5 rounded-md font-medium transition-colors cursor-pointer ${
+                        categoryFilter === "all"
+                          ? "bg-indigo-600 text-white"
+                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                      }`}
+                    >
+                      All
+                    </button>
+                    {CATEGORIES.map((cat) => (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        onClick={() => setCategoryFilter(cat.id)}
+                        className={`px-2 py-0.5 rounded-md font-medium transition-colors cursor-pointer ${
+                          categoryFilter === cat.id
+                            ? "bg-indigo-600 text-white"
+                            : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                        }`}
+                      >
+                        {cat.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {completedCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleClearCompleted}
+                      className="text-xs text-rose-600 hover:text-rose-700 font-medium flex items-center gap-1 cursor-pointer"
+                    >
+                      <CheckCheck className="w-3.5 h-3.5" />
+                      <span>Clear completed ({completedCount})</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* 3. TASK LIST (<ul role="list">) */}
+              {filteredTasks.length > 0 ? (
+                <ul
+                  role="list"
+                  aria-labelledby="list-heading"
+                  className="space-y-3"
+                >
+                  {filteredTasks.map((task) => (
+                    <Todo
+                      key={task.id}
+                      id={task.id}
+                      name={task.name}
+                      completed={task.completed}
+                      priority={task.priority}
+                      category={task.category}
+                      dueDate={task.dueDate}
+                      notes={task.notes}
+                      subtasks={task.subtasks}
+                      toggleTaskCompleted={toggleTaskCompleted}
+                      deleteTask={deleteTask}
+                      editTask={editTask}
+                      toggleSubtask={toggleSubtask}
+                      addSubtask={addSubtask}
+                    />
+                  ))}
+                </ul>
+              ) : (
+                <div className="bg-white rounded-2xl border border-dashed border-slate-300 p-8 text-center space-y-2">
+                  <div className="w-10 h-10 rounded-full bg-slate-100 text-slate-500 flex items-center justify-center mx-auto">
+                    <Sparkles className="w-5 h-5" />
+                  </div>
+                  <h3 className="text-sm font-semibold text-slate-800">
+                    No matching tasks found
+                  </h3>
+                  <p className="text-xs text-slate-500 max-w-sm mx-auto">
+                    Try switching the active filter button above or adding a new task using the form.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* Right Column: Live React DevTools & Architecture Inspector */}
+            {showInspector && (
+              <aside className="lg:col-span-5 space-y-4 sticky top-20">
+                <div className="bg-slate-900 text-slate-100 rounded-2xl p-4 sm:p-5 shadow-md border border-slate-800 space-y-4">
+                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                    <div className="flex items-center gap-2">
+                      <Terminal className="w-4 h-4 text-indigo-400" />
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-slate-200">
+                        Live React State &amp; Props Inspector
+                      </h3>
+                    </div>
+                    <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                      Real-Time Sync
+                    </span>
+                  </div>
+
+                  {/* Component Hierarchy Tree */}
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
+                      1. Component Hierarchy &amp; Props Flow
+                    </div>
+                    <div className="bg-slate-950/80 rounded-xl p-3 font-mono text-xs space-y-1.5 border border-slate-800/80">
+                      <div className="text-amber-300 font-semibold">
+                        &lt;App /&gt;{" "}
+                        <span className="text-slate-400 font-normal">
+                          (state: tasks[{tasks.length}], filter=&quot;{filter}&quot;)
+                        </span>
+                      </div>
+                      <div className="pl-4 text-indigo-300">
+                        ├─ &lt;Form{" "}
+                        <span className="text-emerald-300">addTask=&#123;addTask&#125;</span> /&gt;
+                      </div>
+                      <div className="pl-4 text-sky-300">
+                        ├─ &lt;FilterButton{" "}
+                        <span className="text-emerald-300">
+                          name=&quot;{filter}&quot; isPressed=&#123;true&#125;
+                        </span>{" "}
+                        /&gt; × 3
+                      </div>
+                      <div className="pl-4 text-purple-300">
+                        └─ &lt;Todo{" "}
+                        <span className="text-emerald-300">
+                          key=&#123;task.id&#125; editTask deleteTask
+                        </span>{" "}
+                        /&gt; × {filteredTasks.length}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Live Event & State Transition Log */}
+                  <div>
+                    <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
+                      <span>2. Event &amp; CRUD State Transitions</span>
+                      <button
+                        type="button"
+                        onClick={() => setActionLogs([])}
+                        className="text-[10px] text-slate-400 hover:text-white underline cursor-pointer"
+                      >
+                        Clear log
+                      </button>
+                    </div>
+                    <div className="bg-slate-950/80 rounded-xl p-2.5 font-mono text-[11px] space-y-1.5 max-h-44 overflow-y-auto border border-slate-800/80">
+                      {actionLogs.length > 0 ? (
+                        actionLogs.map((log) => (
+                          <div
+                            key={log.id}
+                            className="flex items-start gap-2 py-1 border-b border-slate-900 last:border-none"
+                          >
+                            <span
+                              className={`px-1.5 py-0.2 rounded text-[9px] font-bold shrink-0 ${
+                                log.type === "CREATE"
+                                  ? "bg-emerald-500/20 text-emerald-300"
+                                  : log.type === "UPDATE"
+                                  ? "bg-amber-500/20 text-amber-300"
+                                  : log.type === "DELETE"
+                                  ? "bg-rose-500/20 text-rose-300"
+                                  : "bg-indigo-500/20 text-indigo-300"
+                              }`}
+                            >
+                              {log.type}
+                            </span>
+                            <span className="text-slate-300 break-all flex-1">{log.message}</span>
+                            <span className="text-slate-500 text-[10px] shrink-0">{log.timestamp}</span>
+                          </div>
+                        ))
+                      ) : (
+                        <div className="text-slate-500 py-2 text-center">
+                          Interact with the app to see state transitions...
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Live JSON State Preview */}
+                  <div>
+                    <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
+                      3. Live <code className="text-indigo-300">tasks</code> State Array (JSON)
+                    </div>
+                    <pre className="bg-slate-950/90 rounded-xl p-3 font-mono text-[11px] text-emerald-300 overflow-x-auto max-h-56 border border-slate-800/80">
+                      {JSON.stringify(
+                        tasks.map(({ id, name, completed, priority, category }) => ({
+                          id,
+                          name: name.length > 34 ? name.slice(0, 34) + "..." : name,
+                          completed,
+                          priority,
+                          category,
+                        })),
+                        null,
+                        2
+                      )}
+                    </pre>
+                  </div>
+                </div>
+              </aside>
+            )}
+          </div>
+        ) : (
+          /* Beginner-to-Advanced Point-by-Point Architecture Walkthrough */
+          <div className="max-w-4xl mx-auto space-y-6">
+            <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-2xs space-y-2">
+              <span className="text-xs font-semibold uppercase tracking-wider text-indigo-600">
+                Step-by-Step Interactive Guide
+              </span>
+              <h2 className="text-xl font-bold text-slate-900">
+                How MDN’s React TodoMatic Works Under the Hood
+              </h2>
+              <p className="text-sm text-slate-600 leading-relaxed">
+                Every feature in this app follows the official{" "}
+                <strong>MDN Web Docs React Tutorial</strong> patterns. Review each core concept below
+                and test it live in the <strong>App Workspace</strong> tab.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Step 1 */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="px-2.5 py-1 rounded-lg bg-indigo-50 text-indigo-700 font-bold text-xs">
+                    Step 1 · Components &amp; Props
+                  </span>
+                  <span className="text-xs font-mono text-slate-400">&lt;App /&gt; → Children</span>
+                </div>
+                <h3 className="text-base font-bold text-slate-900">
+                  Breaking the UI into Modular Pieces
+                </h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Instead of putting hundreds of lines of HTML in one giant function, React splits the UI
+                  into independent components: <code>&lt;App /&gt;</code> (parent container),{" "}
+                  <code>&lt;Form /&gt;</code> (task input), <code>&lt;FilterButton /&gt;</code> (filter
+                  tabs), and <code>&lt;Todo /&gt;</code> (individual task item). Data flows downward via{" "}
+                  <strong>props</strong> (like <code>name</code>, <code>id</code>, and{" "}
+                  <code>completed</code>), and lists always use a unique <code>key=&#123;task.id&#125;</code>.
+                </p>
+              </div>
+
+              {/* Step 2 */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 font-bold text-xs">
+                    Step 2 · State &amp; Events (Create)
+                  </span>
+                  <span className="text-xs font-mono text-slate-400">useState() + onSubmit</span>
+                </div>
+                <h3 className="text-base font-bold text-slate-900">
+                  Controlled Inputs &amp; Callback Props
+                </h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Props only flow downward from parent to child. So how does <code>&lt;Form /&gt;</code>{" "}
+                  send a new task up to <code>&lt;App /&gt;</code>? <code>&lt;App /&gt;</code> defines an{" "}
+                  <code>addTask(name)</code> function and passes it down as a{" "}
+                  <strong>callback prop</strong>. When the user submits the form,{" "}
+                  <code>handleSubmit</code> calls <code>e.preventDefault()</code>, invokes{" "}
+                  <code>props.addTask(name)</code>, and clears the input with <code>setName(&quot;&quot;)</code>.
+                </p>
+              </div>
+
+              {/* Step 3 */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="px-2.5 py-1 rounded-lg bg-amber-50 text-amber-700 font-bold text-xs">
+                    Step 3 · Immutable CRUD Updates
+                  </span>
+                  <span className="text-xs font-mono text-slate-400">.map() &amp; .filter()</span>
+                </div>
+                <h3 className="text-base font-bold text-slate-900">
+                  Toggling, Editing &amp; Deleting Without Mutating
+                </h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  In React, you never mutate state directly (never do <code>tasks.push()</code>). Instead:
+                </p>
+                <ul className="text-xs text-slate-600 space-y-1 list-disc pl-4">
+                  <li>
+                    <strong>Create:</strong> <code>setTasks([newTask, ...tasks])</code>
+                  </li>
+                  <li>
+                    <strong>Update / Edit:</strong>{" "}
+                    <code>tasks.map(t =&gt; t.id === id ? &#123;...t, completed: !t.completed&#125; : t)</code>
+                  </li>
+                  <li>
+                    <strong>Delete:</strong> <code>tasks.filter(t =&gt; t.id !== id)</code>
+                  </li>
+                </ul>
+              </div>
+
+              {/* Step 4 */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <span className="px-2.5 py-1 rounded-lg bg-rose-50 text-rose-700 font-bold text-xs">
+                    Step 4 · Conditional UI &amp; Accessibility
+                  </span>
+                  <span className="text-xs font-mono text-slate-400">useRef() + useEffect()</span>
+                </div>
+                <h3 className="text-base font-bold text-slate-900">
+                  View vs. Edit Templates &amp; Focus Management
+                </h3>
+                <p className="text-xs text-slate-600 leading-relaxed">
+                  Each <code>&lt;Todo /&gt;</code> has local state{" "}
+                  <code>const [isEditing, setEditing] = useState(false)</code> and uses the ternary
+                  operator <code>isEditing ? editingTemplate : viewTemplate</code>. Using{" "}
+                  <code>useRef</code> and MDN’s <code>usePrevious</code> hook inside{" "}
+                  <code>useEffect</code>, keyboard focus automatically jumps into the input when editing
+                  starts and returns to the Edit button when saved or canceled.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
